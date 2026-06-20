@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VoltSpot — EV Charging</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<header>
+  <div class="logo"><span class="logo-bolt">⚡</span>VoltSpot</div>
+  <nav>
+    <a class="active" onclick="showView('map')">Map</a>
+    <a id="navBookings" onclick="openBookingsModal()">My Bookings</a>
+  </nav>
+  <div class="header-right" id="headerRight">
+    <!-- Filled dynamically by renderHeaderAuth() -->
+  </div>
+</header>
+
+<main>
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-title"><span class="live-dot"></span>Nearby Stations</div>
+      <button class="locate-btn" id="locateBtn" onclick="useMyLocation()">
+        <div class="pulse-ring"></div>
+        <span>📍 Use My Location</span>
+      </button>
+      <div class="search-bar">
+        <div class="search-inner">
+          <span class="search-icon">⌕</span>
+          <input type="text" id="locationInput" placeholder="Search city, area, landmark…" onkeydown="if(event.key==='Enter')doSearch()" oninput="if(!this.value.trim())resetToMMR()">
+        </div>
+        <button class="btn-small" onclick="doSearch()">Go</button>
+      </div>
+      <div class="search-bar" style="margin-top:6px">
+        <div class="search-inner">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="nameFilterInput" placeholder="Filter stations…" oninput="applyFilters(this.value)">
+        </div>
+      </div>
+      <div class="filters">
+        <button class="filter-chip active" onclick="setFilter('all',this)">All</button>
+        <button class="filter-chip" onclick="setFilter('available',this)">Available</button>
+        <button class="filter-chip" onclick="setFilter('fast',this)">Fast Charge</button>
+      </div>
+    </div>
+    <div class="result-count" id="resultCountBar" style="display:none">
+      <span id="resultCountText">—</span>
+      <span id="resultRealCount" class="real-count"></span>
+    </div>
+    <div class="station-list" id="stationList">
+      <div style="padding:30px 16px;text-align:center;color:var(--muted);font-size:11px;line-height:1.8">
+        <div style="font-size:28px;margin-bottom:10px">🗺️</div>
+        Tap <strong style="color:var(--accent)">📍 Use My Location</strong><br>
+        or search a city above<br>to find real EV stations near you
+      </div>
+    </div>
+  </aside>
+
+  <div class="map-area">
+    <div id="map"></div>
+    <div class="map-controls">
+      <button class="map-ctrl-btn" id="mapLocateBtn" onclick="useMyLocation()" title="Use my location">📍</button>
+      <button class="map-ctrl-btn" onclick="loadMMR()" title="Show all MMR demo stations">🗺</button>
+    </div>
+    <div class="map-legend">
+      <div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div>Available</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--warn)"></div>Busy</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--danger)"></div>Full</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#4af;box-shadow:0 0 6px #4af"></div>You</div>
+    </div>
+    <div class="spinner-overlay" id="mapLoader" style="display:none"><div class="spinner"></div></div>
+  </div>
+
+  <!-- ══ NAVIGATION PANEL ══ -->
+  <div class="nav-panel" id="navPanel">
+    <div class="nav-panel-header">
+      <div class="nav-panel-title">🧭 Navigation</div>
+      <button class="nav-stop-btn" onclick="stopNavigation()">✕ Stop</button>
+    </div>
+    <div class="nav-summary">
+      <div class="nav-summary-item"><div class="nav-summary-val" id="navDist">—</div><div class="nav-summary-lbl">Distance</div></div>
+      <div class="nav-summary-item"><div class="nav-summary-val" id="navTime">—</div><div class="nav-summary-lbl">Est. Time</div></div>
+      <div class="nav-summary-item"><div class="nav-summary-val" id="navETA">—</div><div class="nav-summary-lbl">ETA</div></div>
+    </div>
+    <div class="nav-steps" id="navSteps"></div>
+    <div class="nav-dest-bar" id="navDestBar">📍 <strong id="navDestName">—</strong></div>
+  </div>
+
+</main>
+
+<!-- ══ AUTH MODAL ══ -->
+<div class="modal-overlay" id="authOverlay">
+  <div class="modal auth-modal">
+    <div class="auth-logo-block">
+      <div class="auth-logo"><span>⚡</span>VoltSpot</div>
+      <div class="auth-tagline">Smart EV Charging · Mumbai Metro Region</div>
+    </div>
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="tabLogin" onclick="switchAuthTab('login')">Sign In</button>
+      <button class="auth-tab" id="tabRegister" onclick="switchAuthTab('register')">Create Account</button>
+    </div>
+    <div class="auth-body">
+
+      <!-- LOGIN PANEL -->
+      <div class="auth-panel active" id="panelLogin">
+        <div class="auth-err" id="loginErr"></div>
+        <div class="auth-input-wrap">
+          <label class="form-label">Email Address</label>
+          <input type="email" class="form-control" id="loginEmail" placeholder="rahul@email.com" autocomplete="email">
+        </div>
+        <div class="auth-input-wrap">
+          <label class="form-label">Password</label>
+          <input type="password" class="form-control" id="loginPass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+          <span class="auth-input-icon" onclick="togglePass('loginPass',this)">👁</span>
+        </div>
+        <button class="btn-primary" style="width:100%;padding:13px;font-size:12px;margin-top:4px" onclick="doLogin()">⚡ Sign In</button>
+        <div class="auth-divider">or</div>
+        <div style="font-size:10px;color:var(--muted);text-align:center;line-height:1.8">
+          <strong style="color:var(--text)">Demo account:</strong><br>
+          Email: <span style="color:var(--accent)">demo@voltspot.in</span> &nbsp;·&nbsp; Password: <span style="color:var(--accent)">demo123</span>
+        </div>
+        <div class="auth-switch">Don't have an account? <span onclick="switchAuthTab('register')">Create one free</span></div>
+      </div>
+
+      <!-- REGISTER PANEL -->
+      <div class="auth-panel" id="panelRegister">
+        <div class="auth-err" id="registerErr"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="auth-input-wrap" style="margin-bottom:0">
+            <label class="form-label">First Name</label>
+            <input type="text" class="form-control" id="regFirst" placeholder="Rahul" autocomplete="given-name">
+          </div>
+          <div class="auth-input-wrap" style="margin-bottom:0">
+            <label class="form-label">Last Name</label>
+            <input type="text" class="form-control" id="regLast" placeholder="Sharma" autocomplete="family-name">
+          </div>
+        </div>
+        <div class="auth-input-wrap" style="margin-top:16px">
+          <label class="form-label">Email Address</label>
+          <input type="email" class="form-control" id="regEmail" placeholder="rahul@email.com" autocomplete="email">
+        </div>
+        <div class="auth-input-wrap">
+          <label class="form-label">Mobile Number</label>
+          <div style="display:flex;gap:8px">
+            <div style="background:var(--surface2);border:1px solid var(--border);padding:11px 13px;font-size:12px;color:var(--muted);white-space:nowrap;flex-shrink:0">🇮🇳 +91</div>
+            <input type="tel" class="form-control" id="regPhone" placeholder="98765 43210" maxlength="10" style="flex:1">
+          </div>
+        </div>
+        <div class="auth-input-wrap">
+          <label class="form-label">Password</label>
+          <input type="password" class="form-control" id="regPass" placeholder="Min. 6 characters" oninput="checkStrength(this.value)" autocomplete="new-password">
+          <span class="auth-input-icon" onclick="togglePass('regPass',this)">👁</span>
+          <div class="strength-bar-wrap" id="strengthBar">
+            <div class="strength-seg" id="seg1"></div>
+            <div class="strength-seg" id="seg2"></div>
+            <div class="strength-seg" id="seg3"></div>
+            <div class="strength-seg" id="seg4"></div>
+          </div>
+          <div class="strength-label" id="strengthLabel"></div>
+        </div>
+        <div class="auth-input-wrap">
+          <label class="form-label">Confirm Password</label>
+          <input type="password" class="form-control" id="regPass2" placeholder="Re-enter password" autocomplete="new-password" onkeydown="if(event.key==='Enter')doRegister()">
+          <span class="auth-input-icon" onclick="togglePass('regPass2',this)">👁</span>
+        </div>
+        <button class="btn-primary" style="width:100%;padding:13px;font-size:12px;margin-top:4px" onclick="doRegister()">Create Account</button>
+        <div class="auth-switch">Already have an account? <span onclick="switchAuthTab('login')">Sign in</span></div>
+      </div>
+
+    </div><!-- /auth-body -->
+  </div>
+</div>
+
+<!-- ══ BOOKING MODAL ══ -->
+<div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+  <div class="modal" id="bookingModal">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="modalTitle">Book a Charging Slot</div>
+        <div style="font-size:9px;color:var(--muted);margin-top:3px" id="modalSubtitle">Reserve your charging session</div>
+      </div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<!-- ══ BOOKINGS LIST MODAL ══ -->
+<div class="modal-overlay" id="bookingsOverlay" onclick="closeBookingsModal(event)">
+  <div class="modal" style="width:560px;max-height:86vh">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title">My Bookings</div>
+        <div style="font-size:9px;color:var(--muted);margin-top:3px">Your reserved charging sessions</div>
+      </div>
+      <button class="modal-close" onclick="closeBookingsModal()">✕</button>
+    </div>
+    <div class="modal-body" id="bookingsList" style="overflow-y:auto;max-height:calc(86vh - 80px)"></div>
+  </div>
+</div>
+
+<!-- ══ PROFILE MODAL ══ -->
+<div class="modal-overlay" id="profileOverlay" onclick="closeProfileModal(event)">
+  <div class="modal" style="width:440px">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title">My Profile</div>
+        <div style="font-size:9px;color:var(--muted);margin-top:3px">Manage your account details</div>
+      </div>
+      <button class="modal-close" onclick="closeProfileModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="profile-avatar-row">
+        <div class="avatar-circle" id="avatarCircle">👤</div>
+        <div>
+          <div id="profileDisplayName" style="font-family:'Syne',sans-serif;font-weight:700;font-size:15px">—</div>
+          <div id="profileDisplayEmail" style="font-size:10px;color:var(--muted);margin-top:2px">—</div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Full Name</label>
+        <input type="text" class="form-control" id="profileName" placeholder="e.g. Rahul Sharma" oninput="liveUpdateProfile()">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email Address</label>
+        <input type="email" class="form-control" id="profileEmail" placeholder="rahul@email.com" readonly style="opacity:.6;cursor:not-allowed">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Contact Number</label>
+        <div style="display:flex;gap:8px">
+          <div style="background:var(--surface2);border:1px solid var(--border);padding:11px 13px;font-size:12px;color:var(--muted);white-space:nowrap">🇮🇳 +91</div>
+          <input type="tel" class="form-control" id="profilePhone" placeholder="98765 43210" maxlength="10" style="flex:1">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">City</label>
+        <input type="text" class="form-control" id="profileCity" placeholder="Mumbai">
+      </div>
+      <div id="profileMsg" style="display:none;background:rgba(0,255,136,.08);border:1px solid rgba(0,255,136,.2);padding:11px 14px;font-size:11px;color:var(--accent);margin-bottom:14px;text-align:center">✓ Profile saved!</div>
+      <button class="btn-primary" style="width:100%;padding:13px;font-size:12px" onclick="saveProfile()">Save Profile</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="utils.js"></script>
+<script src="data.js"></script>
+<script src="auth.js"></script>
+<script src="map.js"></script>
+<script src="sidebar.js"></script>
+<script src="booking.js"></script>
+<script src="navigation.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
